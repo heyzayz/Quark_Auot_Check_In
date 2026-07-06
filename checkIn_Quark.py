@@ -24,6 +24,13 @@ def get_env():
 
     return cookie_list 
 
+def format_bytes(size_bytes: int) -> str:
+    units = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = 0
+    while size_bytes >= 1024 and i < len(units) - 1:
+        size_bytes /= 1024
+        i += 1
+    return f"{size_bytes:.2f} {units[i]}"
 # 其他代码...
 
 class Quark:
@@ -50,21 +57,23 @@ class Quark:
             i += 1
         return f"{b:.2f} {units[i]}"
 
+
+
     def get_growth_info(self):
-        '''
-        获取用户当前的签到信息
-        :return: 返回一个字典，包含用户当前的签到信息
-        '''
         url = "https://drive-m.quark.cn/1/clouddrive/capacity/growth/info"
         querystring = {
             "pr": "ucpro",
             "fr": "android",
-            "kps": self.param.get('kps'),
-            "sign": self.param.get('sign'),
-            "vcode": self.param.get('vcode')
+            "kps": self.mparam.get("kps"),
+            "sign": self.mparam.get("sign"),
+            "vcode": self.mparam.get("vcode"),
         }
-        response = requests.get(url=url, params=querystring).json()
-        #print(response)
+        headers = {
+            "content-type": "application/json",
+        }
+        response = self._send_request(
+            "GET", url, headers=headers, params=querystring
+        ).json()
         if response.get("data"):
             return response["data"]
         else:
@@ -115,35 +124,56 @@ class Quark:
         log = ""
         # 每日领空间
         growth_info = self.get_growth_info()
+        # if growth_info:
+        #     log += (
+        #         f" {'88VIP' if growth_info['88VIP'] else '普通用户'} {self.param.get('user')}\n"
+        #         f"💾 网盘总容量：{self.convert_bytes(growth_info['total_capacity'])}，"
+        #         f"签到累计容量：")
+        #     if "sign_reward" in growth_info['cap_composition']:
+        #         log += f"{self.convert_bytes(growth_info['cap_composition']['sign_reward'])}\n"
+        #     else:
+        #         log += "0 MB\n"
+        #     if growth_info["cap_sign"]["sign_daily"]:
+        #         log += (
+        #             f"✅ 签到日志: 今日已签到+{self.convert_bytes(growth_info['cap_sign']['sign_daily_reward'])}，"
+        #             f"连签进度({growth_info['cap_sign']['sign_progress']}/{growth_info['cap_sign']['sign_target']})\n"
+        #         )
+        #     else:
+        #         sign, sign_return = self.get_growth_sign()
+        #         if sign:
+        #             log += (
+        #                 f"✅ 执行签到: 今日签到+{self.convert_bytes(sign_return)}，"
+        #                 f"连签进度({growth_info['cap_sign']['sign_progress'] + 1}/{growth_info['cap_sign']['sign_target']})\n"
+        #             )
+        #         else:
+        #             log += f"❌ 签到异常: {sign_return}\n"
+        # else:
+        #     # log += f"❌ 签到异常: 获取成长信息失败\n"
+        #     raise Exception("❌ 签到异常: 获取成长信息失败")  # 适用于单账号情形，当 cookie 值失效后直接报错，方便通过 github action 的操作系统来进行提醒 如果你使用的是多账号签到的话，不要跟进此更新
+        #
+        #
         if growth_info:
-            log += (
-                f" {'88VIP' if growth_info['88VIP'] else '普通用户'} {self.param.get('user')}\n"
-                f"💾 网盘总容量：{self.convert_bytes(growth_info['total_capacity'])}，"
-                f"签到累计容量：")
-            if "sign_reward" in growth_info['cap_composition']:
-                log += f"{self.convert_bytes(growth_info['cap_composition']['sign_reward'])}\n"
-            else:
-                log += "0 MB\n"
+            VIP_MAP = {
+                "NORMAL": "普通用户",
+                "EXP_SVIP": "88VIP",
+                "SUPER_VIP": "SVIP",
+                "Z_VIP": "SVIP+",
+            }
+            growth_message = f"💾 {VIP_MAP.get(growth_info['member_type'], growth_info['member_type'])} 总空间：{format_bytes(growth_info['total_capacity'])}，签到累计获得：{format_bytes(growth_info['cap_composition'].get('sign_reward', 0))}"
             if growth_info["cap_sign"]["sign_daily"]:
-                log += (
-                    f"✅ 签到日志: 今日已签到+{self.convert_bytes(growth_info['cap_sign']['sign_daily_reward'])}，"
-                    f"连签进度({growth_info['cap_sign']['sign_progress']}/{growth_info['cap_sign']['sign_target']})\n"
-                )
+                sign_message = f"📅 签到记录: 今日已签到+{int(growth_info['cap_sign']['sign_daily_reward'] / 1024 / 1024)}MB，连签进度({growth_info['cap_sign']['sign_progress']}/{growth_info['cap_sign']['sign_target']})✅"
+                log += f"{sign_message}\n{growth_message}"
             else:
                 sign, sign_return = self.get_growth_sign()
                 if sign:
-                    log += (
-                        f"✅ 执行签到: 今日签到+{self.convert_bytes(sign_return)}，"
-                        f"连签进度({growth_info['cap_sign']['sign_progress'] + 1}/{growth_info['cap_sign']['sign_target']})\n"
-                    )
+                    sign_message = f"📅 执行签到: 今日签到+{int(sign_return / 1024 / 1024)}MB，连签进度({growth_info['cap_sign']['sign_progress'] + 1}/{growth_info['cap_sign']['sign_target']})✅"
+                    log += f"{sign_message}\n{growth_message}"
+                    log += log.replace("今日", f"[{self.param.get('user')}]今日")
                 else:
-                    log += f"❌ 签到异常: {sign_return}\n"
+                    log +=f"📅 签到异常: {sign_return}"
         else:
-            # log += f"❌ 签到异常: 获取成长信息失败\n"
-            raise Exception("❌ 签到异常: 获取成长信息失败")  # 适用于单账号情形，当 cookie 值失效后直接报错，方便通过 github action 的操作系统来进行提醒 如果你使用的是多账号签到的话，不要跟进此更新
-
+            log +="⏭️ 签到进度读取异常，可能登录失效，跳过签到"
         return log
-
 
 def main():
     '''
