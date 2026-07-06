@@ -3,6 +3,8 @@ import re
 import sys 
 import requests 
 
+
+
 cookie_list = os.getenv("COOKIE_QUARK").split('\n|&&')
 
 # 替代 notify 功能
@@ -14,7 +16,7 @@ def get_env():
     # 判断 COOKIE_QUARK是否存在于环境变量 
     if "COOKIE_QUARK" in os.environ: 
         # 读取系统变量以 \n 或 && 分割变量 
-        cookie_list = re.split('\n|&&', os.environ.get('COOKIE_QUARK')) 
+        cookie_list = re.split('\n|&&', os.environ.get('COOKIE_QUARK'))
     else: 
         # 标准日志输出 
         print('❌未添加COOKIE_QUARK变量') 
@@ -57,23 +59,20 @@ class Quark:
             i += 1
         return f"{b:.2f} {units[i]}"
 
-
-
     def get_growth_info(self):
         url = "https://drive-m.quark.cn/1/clouddrive/capacity/growth/info"
         querystring = {
-            "pr": "ucpro",
+             "pr": "ucpro",
             "fr": "android",
-            "kps": self.mparam.get("kps"),
-            "sign": self.mparam.get("sign"),
-            "vcode": self.mparam.get("vcode"),
+            "kps": self.param.get("kps"),
+            "sign": self.param.get("sign"),
+            "vcode": self.param.get("vcode"),
         }
         headers = {
             "content-type": "application/json",
         }
-        response = self._send_request(
-            "GET", url, headers=headers, params=querystring
-        ).json()
+        response = requests.get(url=url, headers=headers, params=querystring).json()
+        # print(response)
         if response.get("data"):
             return response["data"]
         else:
