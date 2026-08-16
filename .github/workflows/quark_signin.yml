@@ -90,12 +90,11 @@ jobs:
           path: .last_success_date
           key: last-success-marker
 
-      # ========== 新增：固定Issue日志通知 ==========
       - name: 签到结果写入固定Issue评论
         uses: actions/github-script@v7
         if: always()
         with:
-          github-token: ${{ secrets.DEL_RUNS_PAT }}
+          token: ${{ secrets.DEL_RUNS_PAT }}
           script: |
             const { owner, repo } = context.repo;
             const issueTitle = "📌夸克签到运行日志";
@@ -116,7 +115,7 @@ jobs:
 
             const jobStatus = ${{ job.status }};
             const runUrl = context.runUrl;
-            const now = new Date().toLocaleString("zh-CN", {timeZone:"Asia/Shanghai"});
+            const now = new Date().toLocaleString("zh‑CN", {timeZone:"Asia/Shanghai"});
 
             let msg;
             if(jobStatus === 'success'){
@@ -138,7 +137,6 @@ jobs:
                 body: msg
               })
             }
-      # ========== 通知结束 ==========
 
       - name: 清理旧的工作流记录
         uses: Mattraks/delete-workflow-runs@main
