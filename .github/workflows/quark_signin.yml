@@ -1,46 +1,3 @@
-name: Quark签到
-
-on:
-  schedule:
-    - cron: '0 1 * * *'   # 北京时间 09:00 (UTC+8 -> UTC+1)
-    - cron: '0 5 * * *'   # 北京时间 13:00 (UTC+8 -> UTC+5)
-  workflow_dispatch:      # 允许手动触发
-
-jobs:
-  check-if-already-signed:
-    runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v3
-
-      - name: 恢复签到成功记录缓存
-        id: cache-success-restore
-        uses: actions/cache@v4
-        with:
-          path: .last_success_date
-          key: last-success-marker
-
-      - name: 判断是否已签到
-        id: check
-        run: |
-          current_date=$(TZ='Asia/Shanghai' date '+%Y-%m-%d')
-          echo "当前北京时间: $current_date"
-
-          if [ -f .last_success_date ]; then
-            last_date=$(cat .last_success_date)
-            echo "上次签到日期: $last_date"
-            if [ "$last_date" = "$current_date" ]; then
-              echo "今天已成功签到，跳过执行。"
-              echo "skip=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
-          echo "今天尚未签到，继续执行。"
-          echo "skip=true" >> "$GITHUB_OUTPUT"
-
   sign-in:
     needs: check-if-already-signed
     if: needs.check-if-already-signed.outputs.skip == 'true'
@@ -90,11 +47,61 @@ jobs:
           path: .last_success_date
           key: last-success-marker
 
+      # ========== 新增：固定Issue日志通知 ==========
+      - name: 签到结果写入固定Issue评论
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          github-token: ${{ secrets.DEL_RUNS_PAT }}
+          script: |
+            const { owner, repo } = context.repo;
+            const issueTitle = "📌夸克签到运行日志";
+            let issueNumber = null;
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner, repo,
+              state: "open",
+              per_page: 100
+            });
+
+            for (const iss of issues) {
+              if (iss.title === issueTitle) {
+                issueNumber = iss.number;
+                break;
+              }
+            }
+
+            const jobStatus = ${{ job.status }};
+            const runUrl = context.runUrl;
+            const now = new Date().toLocaleString("zh-CN", {timeZone:"Asia/Shanghai"});
+
+            let msg;
+            if(jobStatus === 'success'){
+              msg = `✅ **签到执行成功**\n运行时间：${now}\n工作流地址：${runUrl}`;
+            }else if(jobStatus === 'skipped'){
+              msg = `⏭️ **已跳过本次签到（今日已签）**\n运行时间：${now}\n工作流地址：${runUrl}`;
+            }else{
+              msg = `❌ **签到执行异常**\n状态：${jobStatus}\n运行时间：${now}\n工作流地址：${runUrl}`;
+            }
+
+            if(issueNumber){
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issueNumber, body: msg
+              })
+            }else{
+              await github.rest.issues.create({
+                owner, repo,
+                title: issueTitle,
+                body: msg
+              })
+            }
+      # ========== 通知结束 ==========
+
       - name: 清理旧的工作流记录
         uses: Mattraks/delete-workflow-runs@main
         if: always()
         with:
-          token: ${{ github.token }}
+          token: ${{ secrets.DEL_RUNS_PAT }}
           repository: ${{ github.repository }}
           retain_days: 0
           keep_minimum_runs: 60
