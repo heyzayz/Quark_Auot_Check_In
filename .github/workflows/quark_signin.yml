@@ -46,7 +46,7 @@ jobs:
     if: needs.check-if-already-signed.outputs.skip == 'true'
     runs-on: ubuntu-latest
     
-    # 🔑 核心修复：显式补全读写 Issue 以及删除工作流日志所需的全部系统权限
+    # 🔑 显式补全读写 Issue 以及删除工作流日志所需的全部系统权限
     permissions:
       issues: write
       actions: write
@@ -97,31 +97,32 @@ jobs:
           path: .last_success_date
           key: last-success-marker
 
-      # ================== 完美修复版：通过 Issue 评论实现原生通知 ==================
+      # ================== 完美修复 & 动态 @ 拥有者通知步骤 ==================
       - name: 发表 Issue 评论通知
         if: always() # 确保无论签到成功还是失败，都会运行并通知
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_TITLE: "Quark签到通知中心"
+          REPO_OWNER: ${{ github.repository_owner }} # 🔑 动态捕获当前的仓库所有者，不写死任何名字
         run: |
           # 获取当前的北京时间
           CURRENT_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
           
-          # 根据签到执行状态，动态生成 Markdown 通知文案
+          # 根据签到执行状态，动态生成 Markdown 通知文案，并在开头强行 @ 仓库所有者触发系统通知
           if [ "${{ job.status }}" = "success" ]; then
-            COMMENT_BODY="### ✅ Quark 签到成功通知\n- **时间**: $CURRENT_TIME\n- **状态**: 今日签到任务顺利完成。"
+            COMMENT_BODY="@$REPO_OWNER \n### ✅ Quark 签到成功通知\n- **时间**: $CURRENT_TIME\n- **状态**: 今日签到任务顺利完成。"
           else
-            COMMENT_BODY="### ❌ Quark 签到失败报警\n- **时间**: $CURRENT_TIME\n- **状态**: 脚本执行出错！\n- **排查链接**: [查看工作流日志](https://github.com{{ github.repository }}/actions/runs/${{ github.run_id }})"
+            COMMENT_BODY="@$REPO_OWNER \n### ❌ Quark 签到失败报警\n- **时间**: $CURRENT_TIME\n- **状态**: 脚本执行出错！\n- **排查链接**: [查看工作流日志](https://github.com{{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
 
           echo "正在查找现有的通知 Issue..."
-          # 🔑 核心修复：使用兼容性最强的 gh 配合原生 jq 表达式过滤，防止旧版 cli 崩溃
-          ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '.[0].number')
+          # 使用兼容性最强的 gh 配合原生 jq 表达式过滤，防止旧版 cli 崩溃
+          ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '..number')
 
           # 如果找不到（变量为空或为 null），则自动创建新 Issue 载体
           if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
             echo "未找到现有通知 Issue，正在创建新的通知载体..."
-            NEW_ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body "此 Issue 用于接收每日签到状态的评论通知，请勿手动关闭。")
+            NEW_ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body "此 Issue 用于接收每日签到状态的评论通知，请勿手动关闭。此方案由自动化机制维护。")
             ISSUE_NUMBER=$(echo "$NEW_ISSUE_URL" | grep -oE '[0-9]+$' | tail -n1)
           fi
 
@@ -129,7 +130,7 @@ jobs:
           if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
             echo "正在向 Issue #$ISSUE_NUMBER 投递最新签到评论..."
             gh issue comment "$ISSUE_NUMBER" --body "$COMMENT_BODY"
-            echo "通知投递成功！请前往 https://github.com 查看。"
+            echo "通知投递成功！强力提醒已送达。"
           else
             echo "⚠️ 严重错误：未能获取或成功创建 Issue 通知载体！"
             exit 1
