@@ -45,6 +45,12 @@ jobs:
     needs: check-if-already-signed
     if: needs.check-if-already-signed.outputs.skip == 'true'
     runs-on: ubuntu-latest
+    
+    # 关键：赋予工作流写入 Issue 的权限
+    permissions:
+      issues: write
+      contents: read
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
@@ -90,62 +96,43 @@ jobs:
           path: .last_success_date
           key: last-success-marker
 
-      - name: 签到结果写入固定Issue评论
-        uses: actions/github-script@v7
-        if: always()
-        with:
-          github-token: ${{ secrets.DEL_RUNS_PAT }}
-          script: |
-            const { owner, repo } = context.repo;
-            const issueTitle = "📌夸克签到运行日志";
-            let issueNumber = null;
-            const jobStatus = args.jobStatus;
-            const runUrl = context.runUrl;
-            const now = new Date().toLocaleString("zh-CN", {timeZone:"Asia/Shanghai"});
+      # ================== 新增：通过 Issue 评论实现通知 ==================
+      - name: 发表 Issue 评论通知
+        if: always() # 无论成功或失败都执行
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: "Quark签到通知中心"
+        run: |
+          # 获取北京时间
+          CURRENT_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
+          
+          # 根据上一步的状态定义通知文案
+          if [ "${{ job.status }}" = "success" ]; then
+            COMMENT_BODY="### ✅ Quark 签到成功通知\n- **时间**: $CURRENT_TIME\n- **状态**: 今日签到任务顺利完成。"
+          else
+            COMMENT_BODY="### ❌ Quark 签到失败报警\n- **时间**: $CURRENT_TIME\n- **状态**: 脚本执行出错！\n- **排查链接**: [查看工作流日志](https://github.com{{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
 
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner, repo,
-              state: "open",
-              per_page: 100
-            });
+          echo "正在查找现有的通知 Issue..."
+          # 寻找标题为 "Quark签到通知中心" 的开启状态的 Issue
+          ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '.[0].number')
 
-            for (const iss of issues) {
-              if (iss.title === issueTitle) {
-                issueNumber = iss.number;
-                break;
-              }
-            }
+          # 如果找不到，就自动创建一个新的 Issue 专门用来挂载评论
+          if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
+            echo "未找到通知 Issue，正在创建新 Issue..."
+            ISSUE_NUMBER=$(gh issue create --title "$ISSUE_TITLE" --body "此 Issue 用于接收每日签到状态的评论通知，请勿关闭。" --label "notification" | grep -oE '[0-9]+$' | tail -n1)
+          fi
 
-            let msg;
-            if(jobStatus === 'success'){
-              msg = `✅ **签到执行成功**\n运行时间：${now}\n工作流地址：${runUrl}`;
-            }else if(jobStatus === 'skipped'){
-              msg = `⏭️ **已跳过本次签到（今日已签）**\n运行时间：${now}\n工作流地址：${runUrl}`;
-            }else{
-              msg = `❌ **签到执行异常**\n状态：${jobStatus}\n运行时间：${now}\n工作流地址：${runUrl}`;
-            }
-
-            if(issueNumber){
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: issueNumber, body: msg
-              })
-            }else{
-              await github.rest.issues.create({
-                owner, repo,
-                title: issueTitle,
-                body: msg
-              })
-            }
-          args: |
-            {
-              "jobStatus": "${{ job.status }}"
-            }
+          # 在该 Issue 下发表评论（由于你是仓库所有者，此操作会直接向你的 GitHub 发送通知）
+          echo "正在在 Issue #$ISSUE_NUMBER 下发表评论..."
+          gh issue comment "$ISSUE_NUMBER" --body "$COMMENT_BODY"
+          echo "通知发送完毕！"
 
       - name: 清理旧的工作流记录
         uses: Mattraks/delete-workflow-runs@main
         if: always()
         with:
-          token: ${{ secrets.DEL_RUNS_PAT }}
+          token: ${{ github.token }}
           repository: ${{ github.repository }}
           retain_days: 0
           keep_minimum_runs: 60
