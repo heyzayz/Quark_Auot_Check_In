@@ -97,7 +97,7 @@ jobs:
           path: .last_success_date
           key: last-success-marker
 
-      # ================== 完美修复 & 动态 @ 拥有者通知步骤 ==================
+      # ================== 彻底修复 ── 动态捕获并 @ 用户名通知 ==================
       - name: 发表 Issue 评论通知
         if: always() # 确保无论签到成功还是失败，都会运行并通知
         env:
@@ -116,8 +116,9 @@ jobs:
           fi
 
           echo "正在查找现有的通知 Issue..."
-          # 使用兼容性最强的 gh 配合原生 jq 表达式过滤，防止旧版 cli 崩溃
-          ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '..number')
+          # 🔑 终极修复：放弃危险的递归表达式，改用标准稳定的形式提取
+          # 增加 `|| true` 阻断潜在崩溃，使脚本在发生未预料的解析异常时能够健壮地向下执行
+          ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
 
           # 如果找不到（变量为空或为 null），则自动创建新 Issue 载体
           if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
@@ -126,7 +127,7 @@ jobs:
             ISSUE_NUMBER=$(echo "$NEW_ISSUE_URL" | grep -oE '[0-9]+$' | tail -n1)
           fi
 
-          # 安全校验：确保成功拿到 Issue 编号后再追加评论，防止空指针执行
+          # 安全校验：确保成功拿到 Issue 编号后再追加评论
           if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
             echo "正在向 Issue #$ISSUE_NUMBER 投递最新签到评论..."
             gh issue comment "$ISSUE_NUMBER" --body "$COMMENT_BODY"
@@ -144,4 +145,4 @@ jobs:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
           retain_days: 0
-          keep_minimum_runs: 60
+          keep_minimum_runs: 30
