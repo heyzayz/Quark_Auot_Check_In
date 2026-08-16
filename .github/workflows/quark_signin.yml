@@ -46,7 +46,7 @@ jobs:
     if: needs.check-if-already-signed.outputs.skip == 'true'
     runs-on: ubuntu-latest
     
-    # 🔑 关键修复 1：补全读写 Issue 以及删除工作流日志所需的全部权限
+    # 🔑 核心修复：显式补全读写 Issue 以及删除工作流日志所需的全部系统权限
     permissions:
       issues: write
       actions: write
@@ -97,17 +97,17 @@ jobs:
           path: .last_success_date
           key: last-success-marker
 
-      # ================== 修复后：通过 Issue 评论实现通知 ==================
+      # ================== 完美修复版：通过 Issue 评论实现原生通知 ==================
       - name: 发表 Issue 评论通知
-        if: always() # 无论成功或失败都执行
+        if: always() # 确保无论签到成功还是失败，都会运行并通知
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_TITLE: "Quark签到通知中心"
         run: |
-          # 获取北京时间
+          # 获取当前的北京时间
           CURRENT_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
           
-          # 根据上一步的状态定义通知文案
+          # 根据签到执行状态，动态生成 Markdown 通知文案
           if [ "${{ job.status }}" = "success" ]; then
             COMMENT_BODY="### ✅ Quark 签到成功通知\n- **时间**: $CURRENT_TIME\n- **状态**: 今日签到任务顺利完成。"
           else
@@ -115,28 +115,27 @@ jobs:
           fi
 
           echo "正在查找现有的通知 Issue..."
-          # 寻找标题为 "Quark签到通知中心" 的开启状态的 Issue
-          ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '..number')
+          # 🔑 核心修复：使用兼容性最强的 gh 配合原生 jq 表达式过滤，防止旧版 cli 崩溃
+          ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '.[0].number')
 
-          # 🔑 关键修复 2：去掉了 `--label "notification"` 参数，防止因仓库缺失标签导致命令崩溃
+          # 如果找不到（变量为空或为 null），则自动创建新 Issue 载体
           if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
-            echo "未找到通知 Issue，正在创建新 Issue..."
-            # 创建时将返回的完整 URL 解析提取出纯数字的 Issue 编号
-            NEW_ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body "此 Issue 用于接收每日签到状态的评论通知，请勿关闭。")
+            echo "未找到现有通知 Issue，正在创建新的通知载体..."
+            NEW_ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body "此 Issue 用于接收每日签到状态的评论通知，请勿手动关闭。")
             ISSUE_NUMBER=$(echo "$NEW_ISSUE_URL" | grep -oE '[0-9]+$' | tail -n1)
           fi
 
-          # 确保拿到了有效的 Issue 编号再进行评论
-          if [ -n "$ISSUE_NUMBER" ]; then
-            echo "正在在 Issue #$ISSUE_NUMBER 下发表评论..."
+          # 安全校验：确保成功拿到 Issue 编号后再追加评论，防止空指针执行
+          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
+            echo "正在向 Issue #$ISSUE_NUMBER 投递最新签到评论..."
             gh issue comment "$ISSUE_NUMBER" --body "$COMMENT_BODY"
-            echo "通知发送完毕！"
+            echo "通知投递成功！请前往 https://github.com 查看。"
           else
-            echo "⚠️ 严重错误：未能成功获取或创建 Issue 编号！"
+            echo "⚠️ 严重错误：未能获取或成功创建 Issue 通知载体！"
             exit 1
           fi
 
-      # ================== 运行日志清理工具 ==================
+      # ================== 运行日志自动清理工具 ==================
       - name: 清理旧的工作流记录
         uses: Mattraks/delete-workflow-runs@main
         if: always()
