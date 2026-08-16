@@ -94,11 +94,14 @@ jobs:
         uses: actions/github-script@v7
         if: always()
         with:
-          token: ${{ secrets.DEL_RUNS_PAT }}
+          github-token: ${{ secrets.DEL_RUNS_PAT }}
           script: |
             const { owner, repo } = context.repo;
             const issueTitle = "📌夸克签到运行日志";
             let issueNumber = null;
+            const jobStatus = args.jobStatus;
+            const runUrl = context.runUrl;
+            const now = new Date().toLocaleString("zh-CN", {timeZone:"Asia/Shanghai"});
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner, repo,
@@ -112,10 +115,6 @@ jobs:
                 break;
               }
             }
-
-            const jobStatus = ${{ job.status }};
-            const runUrl = context.runUrl;
-            const now = new Date().toLocaleString("zh‑CN", {timeZone:"Asia/Shanghai"});
 
             let msg;
             if(jobStatus === 'success'){
@@ -136,6 +135,10 @@ jobs:
                 title: issueTitle,
                 body: msg
               })
+            }
+          args: |
+            {
+              "jobStatus": "${{ job.status }}"
             }
 
       - name: 清理旧的工作流记录
