@@ -1,11 +1,9 @@
 name: Quark签到
-
 on:
   schedule:
     - cron: '0 1 * * *'   # 北京时间 09:00 (UTC+8 -> UTC+1)
     - cron: '0 5 * * *'   # 北京时间 13:00 (UTC+8 -> UTC+5)
   workflow_dispatch:      # 允许手动触发
-
 jobs:
   check-if-already-signed:
     runs-on: ubuntu-latest
@@ -14,20 +12,17 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
-
       - name: 恢复签到成功记录缓存
         id: cache-success-restore
         uses: actions/cache@v4
         with:
           path: .last_success_date
           key: last-success-marker
-
       - name: 判断是否已签到
         id: check
         run: |
           current_date=$(TZ='Asia/Shanghai' date '+%Y-%m-%d')
           echo "当前北京时间: $current_date"
-
           if [ -f .last_success_date ]; then
             last_date=$(cat .last_success_date)
             echo "上次签到日期: $last_date"
@@ -37,10 +32,8 @@ jobs:
               exit 0
             fi
           fi
-
           echo "今天尚未签到，继续执行。"
           echo "skip=true" >> "$GITHUB_OUTPUT"
-
   sign-in:
     needs: check-if-already-signed
     if: needs.check-if-already-signed.outputs.skip == 'true'
@@ -51,92 +44,70 @@ jobs:
       issues: write
       actions: write
       contents: read
-
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
-
       - name: 随机延迟（早上）
         if: github.event.schedule == '0 1 * * *'
         run: |
           delay=$((RANDOM % 60))
           echo "早上签到，延迟 $delay 秒后开始.."
           sleep $delay
-
       - name: 随机延迟（下午/手动触发）
         if: github.event.schedule == '0 5 * * *' || github.event_name == 'workflow_dispatch'
         run: |
           delay=$((RANDOM % 30))
           echo "下午兜底或手动触发，延迟 $delay 秒后开始.."
           sleep $delay
-
       - name: 设置Python环境
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
-
       - name: 安装依赖
         run: pip install requests
-
       - name: 执行签到脚本
         env:
           COOKIE_QUARK: ${{ secrets.COOKIE_QUARK }}
         run: python checkIn_Quark.py
-
       - name: 标记今天签到成功
         if: success()
         run: |
           date_str=$(TZ='Asia/Shanghai' date '+%Y-%m-%d')
           echo "$date_str" > .last_success_date
           echo "已记录成功签到日期: $date_str"
-
       - name: 保存成功记录到缓存
         if: success()
         uses: actions/cache@v4
         with:
           path: .last_success_date
           key: last-success-marker
-
-      # ================== 彻底修复 ── 动态捕获并 @ 用户名通知 ==================
-      - name: 发表 Issue 评论通知
-        if: always() # 确保无论签到成功还是失败，都会运行并通知
+      # ================== 仅失败时发送 Issue 通知 ==================
+      - name: 发表 Issue 评论通知(仅失败)
+        if: failure() # 只有任务失败才执行，成功直接跳过
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_TITLE: "Quark签到通知中心"
-          REPO_OWNER: ${{ github.repository_owner }} # 🔑 动态捕获当前的仓库所有者，不写死任何名字
+          REPO_OWNER: ${{ github.repository_owner }}
         run: |
-          # 获取当前的北京时间
           CURRENT_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
-          
-          # 根据签到执行状态，动态生成 Markdown 通知文案，并在开头强行 @ 仓库所有者触发系统通知
-          if [ "${{ job.status }}" = "success" ]; then
-            COMMENT_BODY="@$REPO_OWNER \n### ✅ Quark 签到成功通知\n- **时间**: $CURRENT_TIME\n- **状态**: 今日签到任务顺利完成。"
-          else
-            COMMENT_BODY="@$REPO_OWNER \n### ❌ Quark 签到失败报警\n- **时间**: $CURRENT_TIME\n- **状态**: 脚本执行出错！\n- **排查链接**: [查看工作流日志](https://github.com{{ github.repository }}/actions/runs/${{ github.run_id }})"
-          fi
+
+          COMMENT_BODY="@$REPO_OWNER \n### ❌ Quark 签到失败报警\n- **时间**: $CURRENT_TIME\n- **状态**: 脚本执行出错！\n- **排查链接**: [查看工作流日志](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
           echo "正在查找现有的通知 Issue..."
-          # 🔑 终极修复：放弃危险的递归表达式，改用标准稳定的形式提取
-          # 增加 `|| true` 阻断潜在崩溃，使脚本在发生未预料的解析异常时能够健壮地向下执行
           ISSUE_NUMBER=$(gh issue list --search "$ISSUE_TITLE" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
-
-          # 如果找不到（变量为空或为 null），则自动创建新 Issue 载体
           if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
             echo "未找到现有通知 Issue，正在创建新的通知载体..."
             NEW_ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body "此 Issue 用于接收每日签到状态的评论通知，请勿手动关闭。此方案由自动化机制维护。")
             ISSUE_NUMBER=$(echo "$NEW_ISSUE_URL" | grep -oE '[0-9]+$' | tail -n1)
           fi
-
-          # 安全校验：确保成功拿到 Issue 编号后再追加评论
           if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
-            echo "正在向 Issue #$ISSUE_NUMBER 投递最新签到评论..."
+            echo "正在向 Issue #$ISSUE_NUMBER 投递失败报警评论..."
             gh issue comment "$ISSUE_NUMBER" --body "$COMMENT_BODY"
-            echo "通知投递成功！强力提醒已送达。"
+            echo "失败报警通知投递成功！"
           else
             echo "⚠️ 严重错误：未能获取或成功创建 Issue 通知载体！"
             exit 1
           fi
-
       # ================== 运行日志自动清理工具 ==================
       - name: 清理旧的工作流记录
         uses: Mattraks/delete-workflow-runs@main
